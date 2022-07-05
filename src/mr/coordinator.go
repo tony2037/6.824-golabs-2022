@@ -5,11 +5,53 @@ import "net"
 import "os"
 import "net/rpc"
 import "net/http"
+import "sync"
+import "fmt"
+import "path/filepath"
 
+/* [TASK]: This section describes task-related structures
+ *
+*/
+type TaskType int
+type TaskStatus int
+
+const (
+	MapTask TaskType = iota
+	ReduceTask
+	OtherTask
+)
+
+const (
+	Idle TaskStatus = iota
+	Running
+	Finished
+)
+
+type Task struct {
+	Type TaskType
+	Name string
+	Status TaskStatus
+	Index int
+	File string
+	WorkId int
+}
+
+/* [TASK]: end */
+
+/* [Configureation]
+*/
+const TempDir = "tmp"
+const ResultFiles = "mr-out*"
+const TaskTimeout = 10
+/**/
 
 type Coordinator struct {
 	// Your definitions here.
-
+	mu              sync.Mutex
+	aMapTasks       []Task
+	aReduceTasks    []Task
+	nMapTasks       int
+	nReduceTasks    int
 }
 
 // Your code here -- RPC handlers for the worker to call.
@@ -49,9 +91,33 @@ func (c *Coordinator) Done() bool {
 	ret := false
 
 	// Your code here.
+	c.mu.Lock()
+	defer c.mu.Unlock()
 
+	ret = ( 0 == c.nMapTasks && 0 == c.nReduceTasks)
 
 	return ret
+}
+
+//
+// Clean up the environment
+//
+//
+func Destroy() {
+	outFiles, _ := filepath.Glob(ResultFiles)
+	for _, f := range outFiles {
+		if err := os.Remove(f); err != nil {
+			log.Fatalf("Fail to remove file %v\n", f)
+		}
+	}
+	err := os.RemoveAll(TempDir)
+	if err != nil {
+		log.Fatalf("Fail to remove directory %v\n", TempDir)
+	}
+	err = os.Mkdir(TempDir, 0755)
+	if err != nil {
+		log.Fatalf("Fail to create directory %v\n", TempDir)
+	}
 }
 
 //
@@ -63,8 +129,25 @@ func MakeCoordinator(files []string, nReduce int) *Coordinator {
 	c := Coordinator{}
 
 	// Your code here.
+	nMapTasks := len(files)
+	c.nMapTasks = nMapTasks
+	c.aMapTasks = make([]Task, 0, nMapTasks)
+	c.nReduceTasks = nReduce
+	c.aReduceTasks = make([]Task, 0, nReduce)
 
+	for i := 0; i < nMapTasks; i++ {
+		tTaskName := fmt.Sprintf("[MAP](%d)", i)
+		tTask := Task{MapTask, tTaskName, Idle, i, files[i], -1}
+		c.aMapTasks = append(c.aMapTasks, tTask)
+	}
+	for i := 0; i < nReduce; i++ {
+		tTaskName := fmt.Sprintf("[REDUCE](%d)", i)
+		tTask := Task{MapTask, tTaskName, Idle, i, "", -1}
+		c.aReduceTasks = append(c.aReduceTasks, tTask)
+	}
 
 	c.server()
+
+	Destroy()
 	return &c
 }
