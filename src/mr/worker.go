@@ -1,10 +1,15 @@
 package mr
 
-import "fmt"
-import "log"
-import "net/rpc"
-import "hash/fnv"
+import (
+	"fmt"
+	"hash/fnv"
+	"log"
+	"net/rpc"
+	"os"
+	"time"
+)
 
+const PollingSleepTime = 250
 
 //
 // Map functions return a slice of KeyValue.
@@ -24,10 +29,11 @@ func ihash(key string) int {
 	return int(h.Sum32() & 0x7fffffff)
 }
 
-
 //
 // main/mrworker.go calls this function.
-//
+// @details
+//  * a worker can either do a map task or a reduce task
+//  * a worker should ask coordinator to assign a task to do
 func Worker(mapf func(string, string) []KeyValue,
 	reducef func(string, []string) string) {
 
@@ -35,7 +41,68 @@ func Worker(mapf func(string, string) []KeyValue,
 
 	// uncomment to send the Example RPC to the coordinator.
 	// CallExample()
+	for {
+		reply, succ := AskForTask()
+		if !succ {
+			fmt.Println("Fail to ask coordinator to assign a task")
+			break
+		}
+		if ExitTask == reply.Task.Type {
+			fmt.Println("All taks are done, exiting ...")
+			break
+		}
+		switch reply.Task.Type {
+		// been assigned to do a map task
+		case MapTask:
+			succ = MapJob(mapf, reply.Task.File, reply.Task.Index)
+		// been assigned to do a reduce task
+		case ReduceTask:
+			succ = ReduceJob(reducef, reply.Task.File, reply.Task.Index)
+		// all tasks are assigned, but not all finished
+		// poll again after a short period of waiting, in case any worker fail to get task done
+		default:
+			fmt.Println("All tasks are assigned, but not all finished")
+			succ = false
+		}
 
+		wokerExit, ok := ReportTask(reply.Task.Type, reply.Task.Index, succ)
+		if wokerExit || !ok {
+			break
+		}
+
+		time.Sleep(time.Millisecond * PollingSleepTime)
+	}
+}
+
+func AskForTask() (*AskTaskReply, bool) {
+	args := AskTaskArgs{os.Getpid()}
+	reply := AskTaskReply{}
+	ok := call("Coordinator.AskForTask", &args, &reply)
+	if ok {
+		fmt.Printf("[%v] Success to AskForTask: Name: %v, File: %v\n", args.WorkerId, reply.Task.Name, reply.Task.File)
+	} else {
+		fmt.Printf("[%v] Fail to AskForTask\n", args.WorkerId)
+	}
+
+	return &reply, ok
+}
+
+func MapJob(mapf func(string, string) []KeyValue, filePath string, mapId int) bool {
+	return false
+}
+
+func ReduceJob(reducef func(string, []string) string, filePath string, mapId int) bool {
+	return false
+}
+
+func ReportTask(taskType TaskType, taskId int, taskResult bool) (bool, bool) {
+	args := ReportTaskArgs{os.Getpid(), taskType, taskId, taskResult}
+	reply := ReportTaskReply{}
+	ok := call("Coordinator.ReportTask", &args, &reply)
+	if !ok {
+		fmt.Printf("[%v] Fail to ReportTask\n", taskId)
+	}
+	return reply.WorkerExit, ok
 }
 
 //

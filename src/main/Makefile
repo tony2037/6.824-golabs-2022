@@ -9,6 +9,9 @@ lab1-mrcoordinator: mrcoordinator.go
 
 lab1: WC lab1-mrcoordinator
 
+lab1-worker: mrworker.go wc.so
+	${GO} run -race $^
+
 .PHONY: clean
 clean:
 	rm -rf mr-out*
