@@ -43,6 +43,13 @@ type ReportTaskReply struct {
 	WorkerExit bool
 }
 
+// Arguments for [GetReduceCount] RPC
+type GetReduceCountArgs struct {
+}
+type GetReduceCountReply struct {
+	ReduceCount int
+}
+
 // Add your RPC definitions here.
 
 // Cook up a unique-ish UNIX-domain socket name

@@ -72,6 +72,20 @@ func (c *Coordinator) Example(args *ExampleArgs, reply *ExampleReply) error {
 }
 
 //
+// RPC handler: GetReduceCount
+//
+// the RPC argument and reply types are defined in rpc.go.
+//
+func (c *Coordinator) GetReduceCount(args *GetReduceCountArgs, reply *GetReduceCountReply) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	reply.ReduceCount = len(c.aReduceTasks)
+
+	return nil
+}
+
+//
 // RPC handler: AskForTask
 //
 // the RPC argument and reply types are defined in rpc.go.
@@ -110,6 +124,7 @@ func (c *Coordinator) ScheduleIdleTask(taskList []Task, workerId int) (bool, *Ta
 		if Idle == taskList[i].Status {
 			task = &taskList[i]
 			task.WorkId = workerId
+			task.Status = Running
 			return true, task
 		}
 	}
@@ -135,7 +150,7 @@ func (c *Coordinator) MonitorTask(task *Task) bool {
 
 	<-time.After(time.Second * TaskTimeout)
 	c.mu.Lock()
-	if !(task.Status == Finished) {
+	if task.Status == Running {
 		// The worker failed to get the task done
 		// Set the status back to Idle, so other workers can be assigned to this
 		c.ResetTaskIdle(task)
@@ -146,7 +161,7 @@ func (c *Coordinator) MonitorTask(task *Task) bool {
 }
 
 //
-// RPC handler: AskForTask
+// RPC handler: ReportTask
 //
 // the RPC argument and reply types are defined in rpc.go.
 //
@@ -160,7 +175,7 @@ func (c *Coordinator) ReportTask(args *ReportTaskArgs, reply *ReportTaskReply) e
 		task = &c.aMapTasks[args.TaskId]
 		counter = &c.nMapTasks
 	} else if args.TaskType == ReduceTask {
-		task = &c.aMapTasks[args.TaskId]
+		task = &c.aReduceTasks[args.TaskId]
 		counter = &c.nReduceTasks
 	} else {
 		fmt.Println("Should not hit here")
@@ -262,7 +277,7 @@ func MakeCoordinator(files []string, nReduce int) *Coordinator {
 	}
 	for i := 0; i < nReduce; i++ {
 		tTaskName := fmt.Sprintf("[REDUCE](%d)", i)
-		tTask := Task{MapTask, tTaskName, Idle, i, "", -1}
+		tTask := Task{ReduceTask, tTaskName, Idle, i, "", -1}
 		c.aReduceTasks = append(c.aReduceTasks, tTask)
 	}
 
