@@ -25,7 +25,7 @@ import (
 	"time"
 
 	//	"6.824/labgob"
-	"6.824/labrpc"
+	"labrpc"
 )
 
 //
@@ -109,7 +109,7 @@ func (rf *Raft) GetState() (int, bool) {
 	// Your code here (2A).
 	rf.mu.Lock()
 	term = rf.currentTerm
-	isleader = rf.state == Leader
+	isleader = (rf.state == Leader)
 	rf.mu.Unlock()
 	return term, isleader
 }
@@ -216,6 +216,16 @@ type AppendEntriesReply struct {
 }
 
 //
+//
+//
+func (rf *Raft) sendToChannel(ch chan bool, value bool) {
+	select {
+	case ch <- value:
+	default:
+	}
+}
+
+//
 // get the index of the last log entry
 //
 func (rf *Raft) getLastIndex() int {
@@ -248,7 +258,7 @@ func (rf *Raft) stepDownToFollower(term int) {
 	// step down if not follower, this check is needed
 	// to prevent race where state is already follower
 	if state != Follower {
-		rf.stepDownCh <- true // through step down channel to deliver the message
+		rf.sendToChannel(rf.stepDownCh, true) // through step down channel to deliver the message
 	}
 }
 
@@ -297,7 +307,7 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 		rf.isLogUpToDate(args.LastLogIndex, args.LastLogTerm) {
 		reply.VoteGranted = true
 		rf.votedFor = args.CandidateId
-		rf.grantVoteCh <- true
+		rf.sendToChannel(rf.grantVoteCh, true)
 	}
 }
 
@@ -353,7 +363,7 @@ func (rf *Raft) sendRequestVote(server int, args *RequestVoteArgs, reply *Reques
 		rf.voteCount++
 		// only send once when vote count just reaches majority
 		if rf.voteCount == len(rf.peers)/2+1 {
-			rf.winElectCh <- true // tell everyone I'm the fucking bosss now
+			rf.sendToChannel(rf.winElectCh, true) // tell everyone I'm the fucking bosss now
 		}
 		return true
 	}
@@ -402,12 +412,19 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 		rf.stepDownToFollower(args.Term)
 	}
 
-	rf.heartbeatCh <- true
+	lastIndex := rf.getLastIndex()
+	rf.sendToChannel(rf.heartbeatCh, true)
 
 	reply.Term = rf.currentTerm
 	reply.ConflictIndex = -1
 	reply.ConflictTerm = -1
 	reply.Success = true
+
+	// follower log is shorter than leader
+	if args.PrevLogIndex > lastIndex {
+		reply.ConflictIndex = lastIndex + 1
+		return
+	}
 
 }
 
